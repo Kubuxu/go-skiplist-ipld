@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	assert "github.com/stretchr/testify/assert"
+	cbg "github.com/whyrusleeping/cbor-gen"
+	xerrors "golang.org/x/xerrors"
 )
 
 func init() {
@@ -33,7 +36,7 @@ func (mb *mockBlocks) Get(c cid.Cid) (block.Block, error) {
 	if ok {
 		return d, nil
 	}
-	return nil, fmt.Errorf("Not Found")
+	return nil, xerrors.Errorf("could not find: %v: %w", c, fmt.Errorf("Not Found"))
 }
 
 func (mb *mockBlocks) Put(b block.Block) error {
@@ -118,22 +121,46 @@ var R uint64
 func BenchmarkAppend(b *testing.B) {
 	ctx := context.Background()
 
-	var getC float64
-	N := uint64(10000)
-	var r uint64
-	for i := 0; i < b.N; i++ {
-		bs, ms := newBS()
-		l := New(bs)
-		for i := uint64(0); i < N; i++ {
-			l.Append(ctx, 19999)
-		}
-		x, _ := l.Index()
-		r += x
-		getC += float64(ms.gets)
+	var benches = []int{1, 1000, 10000, 100000}
+	for _, M := range benches {
+		M := M
+		b.Run(fmt.Sprintf("ex-size-%d", M), func(b *testing.B) {
+			bs, ms := newBS()
+			l := New(bs)
+			for i := 0; i < M; i++ {
+				err := l.Append(ctx, &TVal{1000})
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			c := l.Cid()
+			var getC float64
+			const N = 100
+			b.ResetTimer()
+
+			var r uint64
+			for i := 0; i < b.N/N; i++ {
+				l, err := Load(ctx, bs, c)
+				if err != nil {
+					panic(err)
+				}
+				ms.gets = 0
+				for j := uint64(0); j < N; j++ {
+					err := l.Append(ctx, &TVal{1000})
+					if err != nil {
+						panic(err)
+					}
+				}
+				x, _ := l.Index()
+				r += x
+				getC += float64(ms.gets)
+			}
+			b.N = (b.N / N) * N
+			R += r
+			b.ReportMetric(getC/float64(b.N), "gets/op")
+		})
 	}
-	b.N *= int(N)
-	R += r
-	b.ReportMetric(getC/float64(b.N), "gets/op")
 }
 
 func BenchmarkGet(b *testing.B) {
@@ -145,7 +172,7 @@ func BenchmarkGet(b *testing.B) {
 			ctx := context.Background()
 			l := New(bs)
 			for i := uint64(0); i < M; i++ {
-				l.Append(ctx, 199923)
+				l.Append(ctx, &TVal{1993})
 			}
 
 			rng := rand.New(rand.NewSource(42))
@@ -161,4 +188,37 @@ func BenchmarkGet(b *testing.B) {
 			b.ReportMetric(float64(mb.gets)/float64(b.N), "gets/op")
 		})
 	}
+}
+
+type TVal struct {
+	i uint64
+}
+
+func (t *TVal) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+	if _, err := w.Write([]byte{128}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *TVal) UnmarshalCBOR(r io.Reader) error {
+	br := cbg.GetPeeker(r)
+
+	maj, extra, err := cbg.CborReadHeader(br)
+	if err != nil {
+		return err
+	}
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra != 0 {
+		return fmt.Errorf("cbor input had wrong number of fields")
+	}
+
+	return nil
 }

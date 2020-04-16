@@ -10,7 +10,6 @@ import (
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
-	mh "github.com/multiformats/go-multihash"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/xerrors"
 )
@@ -32,18 +31,6 @@ type Node struct {
 type cacheVal struct {
 	n Node
 	c cid.Cid
-}
-
-func (n Node) computeCid() (cid.Cid, error) {
-	p := cid.Prefix{
-		Version:  1,
-		MhType:   uint64(mh.BLAKE2B_MIN + 31),
-		MhLength: -1,
-		Codec:    cid.DagCBOR,
-	}
-	buf := new(bytes.Buffer)
-	n.MarshalCBOR(buf)
-	return p.Sum(buf.Bytes())
 }
 
 type Head struct {
@@ -115,7 +102,7 @@ func (h *Head) Get(ctx context.Context, i uint64, out interface{}) error {
 
 func (h *Head) lookup(ctx context.Context, start Node, i uint64) (*Node, cid.Cid, error) {
 	if i == start.Index {
-		c, err := start.computeCid()
+		c, err := h.store.Put(ctx, start)
 		if err != nil {
 			return nil, cid.Undef, xerrors.Errorf("computing cid: %w", err)
 		}
@@ -148,7 +135,6 @@ func (h *Head) lookup(ctx context.Context, start Node, i uint64) (*Node, cid.Cid
 			n = cv.n
 			c = cv.c
 		} else {
-
 			c = n.Links[order]
 			if err := h.store.Get(ctx, c, &n); err != nil {
 				return nil, cid.Undef, xerrors.Errorf("could not load node while walking: %w", err)
