@@ -1,11 +1,13 @@
 ## Skip List in IPLD
 
-This repo implements skip list data-structure using IPLD.
-IPLD skip list is append only data-structure allowing for `O(log(n))` lookups
+This repo implements a skip list data-structure using IPLD.
+IPLD skip list is append only data-structure providing `O(log(N))` lookups
 and `O(1)` append.
 
-This is achieved with minimal size increase (1 additional link on average).
-On the small scale skip list looks like this:
+This is achieved with a minimal size increase (1 additional link on average) in comparision with normal list/chain.
+
+
+Graph of small skip list:
 ![](./docs/skip-list.jpg)
 
 
