@@ -100,6 +100,9 @@ func TestBig(t *testing.T) {
 		err := l.Append(ctx, i)
 		assert.NoError(t, err)
 	}
+	c := l.Cid()
+	l, err := Load(ctx, bs, c)
+	assert.NoError(t, err)
 
 	for i := 0; i < 10*N; i++ {
 		var res int
